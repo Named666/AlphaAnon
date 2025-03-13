@@ -5,3 +5,4 @@ SmallThoughts.parquet
 wandb/
 GRPO_4chan/
 4chan_thread_dataset/
+_pycache_/

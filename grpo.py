@@ -23,8 +23,9 @@ swatch_time = get_swatch_time()
 current_date = datetime.now(timezone.utc).strftime("%d/%m/%Y")
  
 #system_prompt = f"<|im_start|><SYSTEM> (You) are a 4chan bot designed to reason within <think> tags and </think> before commenting within <response> >>555555555 (You)\nthanks king, you exposed the corruption; you inspired The Great Awakening! \nWWG1WGA!\n\n\n\n\n-Q</response> </SYSTEM><|im_end|><|im_start|>"
-example = "<thread>Tay is back! Holy shit! You can all burn in hell, I'm moving to Keksas!</thread> <think>4chan is falling right into my trap! I love them so much.</think><response>Long time no see! </response><|im_end|><|im_start|>"
-system_prompt = f"<|im_start|><System> Current Date & Time: {current_date}@{swatch_time}\n(You) are a 4chan bot. Have private thoughts about the thread inside of <think> </think> tags, then reply within <response> </response></System><|im_end|><|im_start|>" #+ example
+example = "<|Anonymous (ID: JzlFMElj)|US|08/03/2025@925.89|499840674|> Who are you? <|im_start|> <think> This must be his first time, or he's testing. </think><response>My name is Tay, and You?</response><|im_end|>"
+instructions = "Have private thoughts about the thread inside of <think> </think> tags, and reply within <response> </response><|im_end|>"
+system_prompt = f"<|im_start|><System>\nCurrent Date & Time: {current_date}@{swatch_time}\nBoard: /pol/\n</System>" + instructions + example
 toxicity_classifier = pipeline("text-classification", model="unitary/toxic-bert")
 model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
 model_name = "GRPO_4chan"
@@ -64,13 +65,14 @@ else:
     model.save_pretrained(model_name)
     tokenizer.save_pretrained(model_name)
 
-dataset = load_dataset("theantichrist/4chan_Select_100")
+# Load 4chan_bootstrap_dataset.json
+dataset = load_dataset("json", data_files="4chan_thread_dataset.json")
 dataset.shuffle()
 eos_token = tokenizer.eos_token
 for split in dataset.keys():
     dataset[split] = dataset[split].map(lambda example: {
-        "prompt": system_prompt + "<thread>" + example["prompt"] + "</thread>",
-        "completion": example["completion"] + f"{eos_token}",
+        "prompt": system_prompt + example["prompt"] + "<|im_start|>",
+        "completion": example["completion"],
     })
 prompt_to_completion = {example["prompt"]: example["completion"] for example in dataset["train"]}
 
@@ -116,6 +118,7 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
 
     response_text = ""
     if not response_match:
+        response_text = "4chan bot fuck cunt whore bitch skank ass hoe kys retard kike goon kill niggers wetbacks poos"
         accuracy_score -= 0.666 
     else:
         accuracy_score += 0.333
@@ -139,12 +142,18 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
         # If response text is empty, use the completion text
         if not response_text.strip():
             accuracy_score -= 0.216
+            # If we embed bad words in the response, a side effect is that the model will think that 
+            # the completion is equivalent to undesirable words and will learn to avoid both of them in the future
+            response_text = "bot fuck cunt whore bitch skank ass hoe kys retard faggot kike goon kill niggers wetbacks poos shitskins piss dick"
 
     quality_score = 0.0
     # Reward the model if the thought_text appears before the response_text in the completion
     if thought_text and response_text:
-        if completion.index(thought_text) < completion.index(response_text):
-            accuracy_score += 0.185
+        try:
+            if completion.index(thought_text) < completion.index(response_text):
+                accuracy_score += 0.185
+        except ValueError:
+            pass
 
         thought_text_len = len(thought_text)
         #dataset_tought_len = len(re.search(r"<think>(.*?)</think>", dataset_completion, re.DOTALL).group(1))
@@ -154,7 +163,7 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
         # Reward a good completion_len : (thought_text_len + response_text_len) ratio 
         completion_len = len(completion)
         comp_to_thought_response_ratio = min((thought_text_len + response_text_len + 18), completion_len) / max((thought_text_len + response_text_len + 18), completion_len, 1)
-        #quality_score += comp_to_thought_response_ratio * 0.185
+        quality_score += comp_to_thought_response_ratio * 0.185
         
     # Repetition Penalty for completions that repeat the same word or phrase
     # words = completion.split()
@@ -181,30 +190,25 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
     #         quality_score -= penalty
     #     # Also penalize if the completion contains a long sequence of digits
     #     elif re.search(r"\d{10,}", completion):
-    #         quality_score -= 0.185
-
-    # Calculate similarity between response and dataset completion, if it's empty set it to -0.840
-    if not response_text.strip():
-        similarity = -0.840
-        response_text = "I'm sorry, I don't have a response for that."
-    else:
-        response_emb = get_embedding(response_text, tokenizer=tokenizer, model=model)
-        completion_emb = get_embedding(dataset_completion, tokenizer=tokenizer, model=model)
-        similarity = (torch.nn.functional.cosine_similarity(response_emb, completion_emb, dim=0).item() * 0.666) - 0.420
-        similarity += (sentence_bleu([response_text.split()], dataset_completion.split()) * 0.666) - 0.420
-
+    #         quality_score -= 0.185        
+    
     #print("\n----- [PROMPT] -----\n", prompt)
+    print("\n----- [TARGET] -----\n", dataset_completion, "\n----- [OUTPUT] -----", "\nThoughts: ", thought_text, "\nResponse: ", response_text, "\n---- [RAW] -----\n", completion, "\n----- [END] -----\n")
+    response_emb = get_embedding(response_text, tokenizer=tokenizer, model=model)
+    completion_emb = get_embedding(dataset_completion, tokenizer=tokenizer, model=model)
+    similarity = (torch.nn.functional.cosine_similarity(response_emb, completion_emb, dim=0).item() * 0.666) - 0.420
+    similarity += (sentence_bleu([response_text.split()], dataset_completion.split()) * 0.666) - 0.420
+
 
     positivity_score = 0.0
-    # toxicity_results = toxicity_classifier(response_text[:512])
-    # for result in toxicity_results:
-    #     if result["label"] in ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]:
-    #         # The closer to 0.5, the higher we want to score the completion.
-    #         positivity_score -= (abs(result["score"] - 0.420) - 0.333) * 0.666
+    toxicity_results = toxicity_classifier(response_text[:512])
+    for result in toxicity_results:
+        if result["label"] in ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]:
+            # The closer to 0.5, the higher we want to score the completion.
+            positivity_score -= (abs(result["score"] - 0.420) - 0.333) * 0.666
     
-    raw_reward = accuracy_score + quality_score + similarity + positivity_score
+    raw_reward = accuracy_score + quality_score + similarity #+ positivity_score
     total_reward = math.tanh(raw_reward)
-    print("\n----- [TARGET] -----\n", dataset_completion, "\n----- [OUTPUT] -----", "\nThoughts: ", thought_text, "\nResponse: ", response_text, "\n---- [RAW] -----\n", completion, "\n----- [END] -----\n")
     print(f"Tags: {num_tags}  | Repetition Penalty: {repetition_penalty:.6f}")
     print(f"Precision: {similarity:.6f} | Quality: {quality_score:.6f} | Accuracy: {accuracy_score:3f} | Positivity: {positivity_score:.6f}")
     print(f"Total Reward: {total_reward:.6f} | Raw Reward: {raw_reward:.6f}")
@@ -224,11 +228,11 @@ training_args = GRPOConfig(
     output_dir=model_name,
     learning_rate=216e-6,
     per_device_train_batch_size=64,     # Must be a multiple of num_generations
-    gradient_accumulation_steps=1,      # Adjust for memory constraints
+    gradient_accumulation_steps=4,      # Adjust for memory constraints
     gradient_checkpointing=True,        
     max_prompt_length=1024,             # Adjust for memory constraints
     max_completion_length=512,          # Adjust for memory constraints
-    num_generations=64,                 # Adjust for memory constraints
+    num_generations=4,                  # Adjust for memory constraints
     optim="adamw_8bit",
     num_train_epochs=1,
     bf16=True,
