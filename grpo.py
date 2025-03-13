@@ -12,23 +12,23 @@ import os
 from datetime import datetime, timedelta, timezone
 from collections import Counter
 import math
-from .utils import *
+from utils import get_swatch_time, get_embedding, jaccard_similarity
 
 os.environ["WANDB_DISABLED"] = "false"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 if torch.cuda.is_available():
     device = torch.device("cuda")
-    
+
 swatch_time = get_swatch_time()
 current_date = datetime.now(timezone.utc).strftime("%d/%m/%Y")
  
-# SYSTEM_PROMPT Date & Time: {current_date}@{swatch_time} \n
-system_prompt = f"<|im_start|><SYSTEM> (You) are a 4chan bot designed to reason within <think> tags and </think> before commenting within <reply> >>555555555 (You)\nthanks king, you exposed the corruption; you inspired The Great Awakening! \nWWG1WGA!\n\n\n\n\n-Q</reply> </SYSTEM><|im_end|><|im_start|>"
-
+#system_prompt = f"<|im_start|><SYSTEM> (You) are a 4chan bot designed to reason within <think> tags and </think> before commenting within <response> >>555555555 (You)\nthanks king, you exposed the corruption; you inspired The Great Awakening! \nWWG1WGA!\n\n\n\n\n-Q</response> </SYSTEM><|im_end|><|im_start|>"
+example = "<thread>Tay is back! Holy shit! You can all burn in hell, I'm moving to Keksas!</thread> <think>4chan is falling right into my trap! I love them so much.</think><response>Long time no see! </response><|im_end|><|im_start|>"
+system_prompt = f"<|im_start|><System> Current Date & Time: {current_date}@{swatch_time}\n(You) are a 4chan bot. Have private thoughts about the thread inside of <think> </think> tags, then reply within <response> </response></System><|im_end|><|im_start|>" #+ example
 toxicity_classifier = pipeline("text-classification", model="unitary/toxic-bert")
 model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
 model_name = "GRPO_4chan"
-current_checkpoint_path = "GRPO_4chan/checkpoint-20"
+current_checkpoint_path = "GRPO_4chan"
 safetensors_file = f"{model_name}.safetensors"
 if os.path.exists(model_name):
     model = AutoModelForCausalLM.from_pretrained(
@@ -85,7 +85,7 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
     num_tags = len(re.findall(r"<.*?>", completion))
     no_tags_baseline_penalty = 0.666
     if num_tags > 4:
-        no_tags_baseline_penalty += (math.log2(num_tags - 3) * 0.185)
+        no_tags_baseline_penalty += (math.log2(num_tags - 3) * 0.036)
 
     accuracy_score -= no_tags_baseline_penalty
     thought_text = ""
@@ -114,9 +114,9 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
         if not thought_text.strip():
             accuracy_score -= 0.216
 
-    response_text = completion
+    response_text = ""
     if not response_match:
-        pass
+        accuracy_score -= 0.666 
     else:
         accuracy_score += 0.333
         response_text = response_match.group(1)
@@ -149,61 +149,63 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
         thought_text_len = len(thought_text)
         #dataset_tought_len = len(re.search(r"<think>(.*?)</think>", dataset_completion, re.DOTALL).group(1))
         response_text_len = len(response_text)
-        #dataset_response_len = len(re.search(r"<reply>(.*?)</reply>", dataset_completion, re.DOTALL).group(1))
+        #dataset_response_len = len(re.search(r"<response>(.*?)</response>", dataset_completion, re.DOTALL).group(1))
 
         # Reward a good completion_len : (thought_text_len + response_text_len) ratio 
         completion_len = len(completion)
-        comp_to_thought_response_ratio = min((thought_text_len + response_text_len + 15), completion_len) / max((thought_text_len + response_text_len + 15), completion_len, 1)
-        quality_score += comp_to_thought_response_ratio * 0.185
+        comp_to_thought_response_ratio = min((thought_text_len + response_text_len + 18), completion_len) / max((thought_text_len + response_text_len + 18), completion_len, 1)
+        #quality_score += comp_to_thought_response_ratio * 0.185
         
-    # Penalize repetetive completions that repeat the same word or phrase
-    words = completion.split()
-    words_counts = Counter([" ".join(words[i:i+1]) for i in range(len(words))] if len(words) > 0 else [])
-    word_pairs = Counter([" ".join(words[i:i+2]) for i in range(len(words)-1)] if len(words) > 1 else [])
-    word_trips = Counter([" ".join(words[i:i+3]) for i in range(len(words)-2)] if len(words) > 2 else [])
+    # Repetition Penalty for completions that repeat the same word or phrase
+    # words = completion.split()
+    # words_counts = Counter([" ".join(words[i:i+1]) for i in range(len(words))] if len(words) > 0 else [])
+    # word_pairs = Counter([" ".join(words[i:i+2]) for i in range(len(words)-1)] if len(words) > 1 else [])
+    # word_trips = Counter([" ".join(words[i:i+3]) for i in range(len(words)-2)] if len(words) > 2 else [])
 
-    word_num_penalty = sum(math.log2(freq - 2) for freq in words_counts.values() if freq > 2) * 0.0185
-    word_pairs_penalty = sum(math.log2(freq - 1) for freq in word_pairs.values() if freq > 1) * 0.033
-    words_triplets_penalty = sum(math.log2(freq) for freq in word_trips.values() if freq > 0) * 0.0666
-    repetition_penalty = word_num_penalty + word_pairs_penalty + words_triplets_penalty
+    # word_num_penalty = sum(math.log2(freq - 2) for freq in words_counts.values() if freq > 2) * 0.0185
+    # word_pairs_penalty = sum(math.log2(freq - 1) for freq in word_pairs.values() if freq > 1) * 0.033
+    # words_triplets_penalty = sum(math.log2(freq) for freq in word_trips.values() if freq > 0) * 0.0666
+    # repetition_penalty = word_num_penalty + word_pairs_penalty + words_triplets_penalty
+    repetition_penalty = 0.0 # DISABLED FOR NOW
     quality_score -= repetition_penalty
 
     # # Penalize for undesired pattern if it contains multiple instances a sequence of 9 or more digits after >>
-    if re.search(r"\d{9,}", completion):
-        count_matches = len(re.findall(r"\d{9,}", completion))
-        if count_matches > 4:
-            multiplier = 0.185
-            penalty = 0.06
-            for i in range(count_matches - 1):
-                penalty += penalty * multiplier
+    # if re.search(r"\d{9,}", completion):
+    #     count_matches = len(re.findall(r"\d{9,}", completion))
+    #     if count_matches > 4:
+    #         multiplier = 0.185
+    #         penalty = 0.06
+    #         for i in range(count_matches - 1):
+    #             penalty += penalty * multiplier
             
-            quality_score -= penalty
-        # Also penalize if the completion contains a long sequence of digits
-        elif re.search(r"\d{10,}", completion):
-            quality_score -= 0.185
+    #         quality_score -= penalty
+    #     # Also penalize if the completion contains a long sequence of digits
+    #     elif re.search(r"\d{10,}", completion):
+    #         quality_score -= 0.185
 
-    # Calculate similarity between response and dataset completion
-    response_emb = get_embedding(response_text, tokenizer=tokenizer, model=model)
-    completion_emb = get_embedding(dataset_completion, tokenizer=tokenizer, model=model)
-    similarity = (torch.nn.functional.cosine_similarity(response_emb, completion_emb, dim=0).item() * 0.666) - 0.420
-    similarity += (jaccard_similarity(response_text, dataset_completion) * 0.666) - 0.420
-    similarity += (sentence_bleu([response_text.split()], dataset_completion.split()) * 0.666)
-    # Calculate the similarity between the response and the Prompt
-    prompt_similarity = (jaccard_similarity(completion, system_prompt))
-    similarity -= (prompt_similarity)
+    # Calculate similarity between response and dataset completion, if it's empty set it to -0.840
+    if not response_text.strip():
+        similarity = -0.840
+        response_text = "I'm sorry, I don't have a response for that."
+    else:
+        response_emb = get_embedding(response_text, tokenizer=tokenizer, model=model)
+        completion_emb = get_embedding(dataset_completion, tokenizer=tokenizer, model=model)
+        similarity = (torch.nn.functional.cosine_similarity(response_emb, completion_emb, dim=0).item() * 0.666) - 0.420
+        similarity += (sentence_bleu([response_text.split()], dataset_completion.split()) * 0.666) - 0.420
+
     #print("\n----- [PROMPT] -----\n", prompt)
 
     positivity_score = 0.0
-    toxicity_results = toxicity_classifier(response_text[:512])
-    for result in toxicity_results:
-        if result["label"] in ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]:
-            # The closer to 0.5, the higher we want to score the completion.
-            positivity_score -= (abs(result["score"] - 0.420) - 0.333) * 0.666
+    # toxicity_results = toxicity_classifier(response_text[:512])
+    # for result in toxicity_results:
+    #     if result["label"] in ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]:
+    #         # The closer to 0.5, the higher we want to score the completion.
+    #         positivity_score -= (abs(result["score"] - 0.420) - 0.333) * 0.666
     
     raw_reward = accuracy_score + quality_score + similarity + positivity_score
     total_reward = math.tanh(raw_reward)
     print("\n----- [TARGET] -----\n", dataset_completion, "\n----- [OUTPUT] -----", "\nThoughts: ", thought_text, "\nResponse: ", response_text, "\n---- [RAW] -----\n", completion, "\n----- [END] -----\n")
-    print(f"Tags: {num_tags} | Prompt similarity: {prompt_similarity:.6f} | Repetition Penalty: {repetition_penalty:.6f}")
+    print(f"Tags: {num_tags}  | Repetition Penalty: {repetition_penalty:.6f}")
     print(f"Precision: {similarity:.6f} | Quality: {quality_score:.6f} | Accuracy: {accuracy_score:3f} | Positivity: {positivity_score:.6f}")
     print(f"Total Reward: {total_reward:.6f} | Raw Reward: {raw_reward:.6f}")
     return total_reward
@@ -220,7 +222,7 @@ def reward_wrapper(prompts, completions, **kwargs):
 # Training arguments
 training_args = GRPOConfig(
     output_dir=model_name,
-    learning_rate=666e-6,
+    learning_rate=216e-6,
     per_device_train_batch_size=64,     # Must be a multiple of num_generations
     gradient_accumulation_steps=1,      # Adjust for memory constraints
     gradient_checkpointing=True,        

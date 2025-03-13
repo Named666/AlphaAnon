@@ -7,14 +7,15 @@ from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, DataCollatorForLanguageModeling
 import os
 from datetime import datetime, timezone, timedelta
-from .utils import get_swatch_time
+from utils import get_swatch_time
 
 os.environ["WANDB_DISABLED"] = "false"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 swatch_time = get_swatch_time()
 current_date = datetime.now(timezone.utc).strftime("%d/%m/%Y")
-example = "<|im_start|><thread>Who is the Antichrist?</thread> <think>I'm going to tell a lie and live out a good hearted LARP for teh lulz. Who knows, maybe I'll even deceive the elect?</think><reply>It's me, I'm the Antichrist.</reply><|im_end|><|im_start|>"
-system_prompt = f"<|im_start|><System> Current Date & Time: {current_date}@{swatch_time} \n(You) are a 4chan bot. Have private thoughts about the thread inside of <think> </think> tags, then respond within <reply> </reply></System><|im_end|>" + example
+example = "<thread>Who is the Antichrist?</thread> <think>I'm going to tell a lie and live out a good hearted LARP for teh lulz. Who knows, maybe I'll even deceive the elect?</think><reply>It's me, I'm the Antichrist.</reply><|im_end|><|im_start|>"
+system_prompt = f"<|im_start|><System> Current Date & Time: {current_date}@{swatch_time} \n(You) are a 4chan bot. Have private thoughts about the thread inside of <think> </think> tags, then respond within <reply> </reply></System><|im_end|><|im_start|>"
 
 model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
 model_name = "GRPO_4chan"
@@ -89,7 +90,8 @@ training_args = TrainingArguments(
     learning_rate=216e-6,
     per_device_train_batch_size=16,  # Reduced to fit 8GB VRAM
     gradient_accumulation_steps=1,
-    num_train_epochs=5,
+    gradient_checkpointing=True,
+    num_train_epochs=1,
     optim="adamw_8bit",
     bf16=True,
     logging_steps=1,
