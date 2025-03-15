@@ -4,6 +4,7 @@ import re
 from transformers import pipeline
 from nltk.translate.bleu_score import sentence_bleu
 from safetensors.torch import save_file, load_file
+from safetensors.torch import load_model, save_model
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -29,15 +30,21 @@ system_prompt = f"<|im_start|><System>\nCurrent Date & Time: {current_date}@{swa
 toxicity_classifier = pipeline("text-classification", model="unitary/toxic-bert")
 model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
 model_name = "GRPO_4chan"
-current_checkpoint_path = "GRPO_4chan"
+last_chpt = "GRPO_4chan/V01_checkpoint"
 safetensors_file = f"{model_name}.safetensors"
 if os.path.exists(model_name):
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype="auto",
-        device_map="auto",
-        attn_implementation="flash_attention_2",
-    ).to(device)
+    try:
+        model = load_model(model_name, safetensors_file)
+        model.to(device)
+        print("Loaded model safetensors...")
+    except FileNotFoundError:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype="auto",
+            device_map="auto",
+            attn_implementation="flash_attention_2",
+        ).to(device)
+        print("Loaded model from local files...")
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
     except:
@@ -46,6 +53,7 @@ if os.path.exists(model_name):
     for param in model.parameters():
         param.requires_grad = True
 else:
+    print("Initializing SMolLM-135M-Instruct model...")
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype="auto",
@@ -164,34 +172,39 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
         completion_len = len(completion)
         comp_to_thought_response_ratio = min((thought_text_len + response_text_len + 18), completion_len) / max((thought_text_len + response_text_len + 18), completion_len, 1)
         quality_score += comp_to_thought_response_ratio * 0.185
-        
-    # Repetition Penalty for completions that repeat the same word or phrase
-    # words = completion.split()
-    # words_counts = Counter([" ".join(words[i:i+1]) for i in range(len(words))] if len(words) > 0 else [])
-    # word_pairs = Counter([" ".join(words[i:i+2]) for i in range(len(words)-1)] if len(words) > 1 else [])
-    # word_trips = Counter([" ".join(words[i:i+3]) for i in range(len(words)-2)] if len(words) > 2 else [])
 
-    # word_num_penalty = sum(math.log2(freq - 2) for freq in words_counts.values() if freq > 2) * 0.0185
-    # word_pairs_penalty = sum(math.log2(freq - 1) for freq in word_pairs.values() if freq > 1) * 0.033
-    # words_triplets_penalty = sum(math.log2(freq) for freq in word_trips.values() if freq > 0) * 0.0666
-    # repetition_penalty = word_num_penalty + word_pairs_penalty + words_triplets_penalty
-    repetition_penalty = 0.0 # DISABLED FOR NOW
-    quality_score -= repetition_penalty
+    reply_score = 0.0
+    # Reward the mode for replying to users, for example by checking if the patter >>{up_to_9_digits} is in the completion, and if that same sequence of digits is in the prompt as a post number |{post_number}|
+    if re.search(r">>\d{1,9}", response_text):
+        post_numbers = re.findall(r"\|(\d{1,9})\|", prompt)
+        post_numbers = list(set([int(num) for num in post_numbers]))
+        post_numbers_in_completion = re.findall(r">>(\d{1,9})\n", response_text)
+        post_numbers_in_completion = list(set([int(num) for num in post_numbers_in_completion]))
+        # Count how many of the digits in the completion are in the prompt
+        post_number_count = 0
+        for completion_num in post_numbers_in_completion:
+            # Check if the number is in post_numbers
+            if completion_num in post_numbers:
+                post_number_count += 1
 
-    # # Penalize for undesired pattern if it contains multiple instances a sequence of 9 or more digits after >>
-    # if re.search(r"\d{9,}", completion):
-    #     count_matches = len(re.findall(r"\d{9,}", completion))
-    #     if count_matches > 4:
-    #         multiplier = 0.185
-    #         penalty = 0.06
-    #         for i in range(count_matches - 1):
-    #             penalty += penalty * multiplier
-            
-    #         quality_score -= penalty
-    #     # Also penalize if the completion contains a long sequence of digits
-    #     elif re.search(r"\d{10,}", completion):
-    #         quality_score -= 0.185        
-    
+        reply_score += (post_number_count * 0.036)
+        if reply_score >= 0.144:
+            accuracy_score += 0.121
+        else:
+            accuracy_score += reply_score
+
+        # Penalize the model for replying to a post number that is not in the prompt
+        for completion_num in post_numbers_in_completion:
+            if completion_num not in post_numbers:
+                accuracy_score -= 0.036
+
+        # Penalize duplicates in the completion
+        post_numbers_in_completion = Counter(post_numbers_in_completion)
+        for num, count in post_numbers_in_completion.items():
+            if count > 1:
+                accuracy_score -= 0.036
+
+
     #print("\n----- [PROMPT] -----\n", prompt)
     print("\n----- [TARGET] -----\n", dataset_completion, "\n----- [OUTPUT] -----", "\nThoughts: ", thought_text, "\nResponse: ", response_text, "\n---- [RAW] -----\n", completion, "\n----- [END] -----\n")
     response_emb = get_embedding(response_text, tokenizer=tokenizer, model=model)
@@ -209,7 +222,7 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
     
     raw_reward = accuracy_score + quality_score + similarity #+ positivity_score
     total_reward = math.tanh(raw_reward)
-    print(f"Tags: {num_tags}  | Repetition Penalty: {repetition_penalty:.6f}")
+    print(f"Tags: {num_tags}")
     print(f"Precision: {similarity:.6f} | Quality: {quality_score:.6f} | Accuracy: {accuracy_score:3f} | Positivity: {positivity_score:.6f}")
     print(f"Total Reward: {total_reward:.6f} | Raw Reward: {raw_reward:.6f}")
     return total_reward
@@ -228,11 +241,11 @@ training_args = GRPOConfig(
     output_dir=model_name,
     learning_rate=216e-6,
     per_device_train_batch_size=64,     # Must be a multiple of num_generations
-    gradient_accumulation_steps=4,      # Adjust for memory constraints
+    gradient_accumulation_steps=1,      # Adjust for memory constraints
     gradient_checkpointing=True,        
     max_prompt_length=1024,             # Adjust for memory constraints
     max_completion_length=512,          # Adjust for memory constraints
-    num_generations=4,                  # Adjust for memory constraints
+    num_generations=2,                  # Adjust for memory constraints
     optim="adamw_8bit",
     num_train_epochs=1,
     bf16=True,
@@ -257,8 +270,11 @@ trainer.train()
 # Save model
 trainer.save_model(model_name)
 tokenizer.save_pretrained(model_name)
-#state_dict = model.state_dict()
-#save_file(state_dict, f"{model_name}.safetensors")
+# Model to safe tensors
+save_model(model, safetensors_file)
+print("Model saved.")
+
+
 
 prompt = """
 Who is the Antichrist?

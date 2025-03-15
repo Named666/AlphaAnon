@@ -42,9 +42,9 @@ def fetch_4chan_data(board="pol", num_threads=100, max_prior_posts=100, max_leng
                         post_name = f"{post_name} (ID: {p['id']})"
                     date_time = f"{get_date(post_time)}@{get_swatch_time(post_time, tz=timezone.utc)}"
                     if p == posts[0]:
-                        prior_posts.append(f"<|(OP) {post_name}|{post_flag}|{date_time}|{post_number}|> {post_text}")
+                        prior_posts.append(f"\n<|(OP) {post_name}|{post_flag}|{date_time}|{post_number}|>\n{post_text}")
                     else:
-                        prior_posts.append(f"<|{post_name}|{post_flag}|{date_time}|{post_number}|> {post_text}")
+                        prior_posts.append(f"\n<|{post_name}|{post_flag}|{date_time}|{post_number}|>\n{post_text}")
             # Check if all prior posts fit into max_length
             if sum(len(p) for p in prior_posts) > max_length:
                 pass
