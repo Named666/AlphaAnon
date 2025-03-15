@@ -31,10 +31,22 @@ toxicity_classifier = pipeline("text-classification", model="unitary/toxic-bert"
 model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
 model_name = "GRPO_4chan"
 last_chpt = "GRPO_4chan/V01_checkpoint"
-safetensors_file = f"{model_name}.safetensors"
+safetensors_file = f"{model_name}/{model_name}.safetensors"
 if os.path.exists(model_name):
     try:
-        model = load_model(model_name, safetensors_file)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype="auto",
+            device_map="auto",
+            attn_implementation="flash_attention_2",
+        ).to(device)
+        # Load from safetensors file
+        model_state_dict = load_model(model=model, filename=safetensors_file)
+        if isinstance(model_state_dict, tuple):
+            model_state_dict = model_state_dict[0]
+        if isinstance(model_state_dict, set):
+            model_state_dict = {k: v for k, v in model_state_dict}
+        model.load_state_dict(model_state_dict, strict=False)
         model.to(device)
         print("Loaded model safetensors...")
     except FileNotFoundError:
@@ -205,6 +217,38 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
                 accuracy_score -= 0.036
 
 
+    quote_score = 0.0
+    # Reward the model for quoting users, for example by checking if the pattern >{text}\n is in the response_text, and if that same text is in the prompt
+    if re.search(r"\n>.*?\n", response_text):
+        quotes = re.findall(r">(.+?)\n", response_text)
+        quotes = list(set(quotes))
+        quotes_in_prompt = re.findall(r"\|(.+?)\|", prompt)
+        quotes_in_prompt = list(set(quotes_in_prompt))
+        # Count how many of the quotes in the response_text are in the prompt
+        for quote in quotes:
+            # Check if the quote is in quotes_in_prompt
+            if quote in quotes_in_prompt:
+                quote_score += 1
+
+            if quote not in quotes_in_prompt:
+                quote_score -= 1
+
+        # Check if the quotes from response_text immediately preceded by a >>{post_number} in the prompt
+        for quote in quotes:
+            quote_text = f">{quote}\n"
+            if re.search(r">>\d{1,9}\n" + re.escape(quote_text), prompt):
+                quote_score += 0.666
+
+        quote_score = quote_score * 0.036
+        if quote_score >= 0.121:
+            accuracy_score += 0.072
+
+        # Penalize duplicates in the response_text
+        quote_counter = Counter(quotes)
+        for quote, count in quote_counter.items():
+            if count > 1:
+                accuracy_score -= (count - 1) * 0.036
+
     #print("\n----- [PROMPT] -----\n", prompt)
     print("\n----- [TARGET] -----\n", dataset_completion, "\n----- [OUTPUT] -----", "\nThoughts: ", thought_text, "\nResponse: ", response_text, "\n---- [RAW] -----\n", completion, "\n----- [END] -----\n")
     response_emb = get_embedding(response_text, tokenizer=tokenizer, model=model)
@@ -245,7 +289,7 @@ training_args = GRPOConfig(
     gradient_checkpointing=True,        
     max_prompt_length=1024,             # Adjust for memory constraints
     max_completion_length=512,          # Adjust for memory constraints
-    num_generations=2,                  # Adjust for memory constraints
+    num_generations=4,                  # Adjust for memory constraints
     optim="adamw_8bit",
     num_train_epochs=1,
     bf16=True,

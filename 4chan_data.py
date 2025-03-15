@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from utils import get_swatch_time, clean_text, get_date
 
 # --- 1. Fetching and Preprocessing 4chan Thread Data ---
-def fetch_4chan_data(board="pol", num_threads=100, max_prior_posts=100, max_length=2048):
+def fetch_4chan_data(board="pol", num_threads=10, max_prior_posts=6, max_length=2048):
     url = f"https://a.4cdn.org/{board}/threads.json"
     response = requests.get(url)
     threads_data = response.json()
@@ -55,7 +55,10 @@ def fetch_4chan_data(board="pol", num_threads=100, max_prior_posts=100, max_leng
                 if re.search(r"(http|https|www)", completion):
                     pass
                 elif completion:
-                    dataset.append({"prompt": prompt, "completion": completion})
+                    if prompt == "":
+                        pass
+                    else:
+                        dataset.append({"prompt": prompt, "completion": completion})
                 
 
     dataset = [{ "prompt": d["prompt"], "completion": clean_text(d["completion"])} 
