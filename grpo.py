@@ -188,7 +188,7 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
     reply_score = 0.0
     # Reward the mode for replying to users, for example by checking if the patter >>{up_to_9_digits} is in the completion, and if that same sequence of digits is in the prompt as a post number |{post_number}|
     if re.search(r">>\d{1,9}", response_text):
-        post_numbers = re.findall(r"\|(\d{1,9})\|", dataset_completion)
+        post_numbers = re.findall(r">>(\d{1,9})", dataset_completion)
         post_numbers = list(set([int(num) for num in post_numbers]))
         prompt_post_numbers = re.findall(r">>(\d{1,9})", prompt)
         prompt_post_numbers = list(set([int(num) for num in prompt_post_numbers]))
@@ -226,26 +226,29 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
     if re.search(r"\n>.*?\n", response_text):
         quotes = re.findall(r">(.+?)\n", response_text)
         quotes = list(set(quotes))
-        quotes_in_prompt = re.findall(r"\|(.+?)\|", prompt)
-        quotes_in_prompt = list(set(quotes_in_prompt))
+        nos_in_prompt = re.findall(r"\|(\d{1,9})\|", prompt)
+        nos_in_prompt = list(set(nos_in_prompt))
         # Count how many of the quotes in the response_text are in the prompt
         for quote in quotes:
-            # Check if the quote is in quotes_in_prompt
-            if quote in quotes_in_prompt:
+            # Check if the quote is in prompt
+            if quote in prompt:
                 quote_score += 1
 
-            if quote not in quotes_in_prompt:
+            if quote not in prompt:
                 quote_score -= 1
 
-        # Check if the quotes from response_text immediately preceded by a >>{post_number} in the prompt
+        # Check if the quotes from response_text are immediately preceded by a >>{post_number} with a post_number that is in the prompt
         for quote in quotes:
             quote_text = f">{quote}\n"
-            if re.search(r">>\d{1,9}\n" + re.escape(quote_text), prompt):
-                quote_score += 0.666
 
-        quote_score = quote_score * 0.036
-        if quote_score >= 0.121:
-            accuracy_score += 0.072
+            if re.search(r">>\d{1,9}\n" + re.escape(quote_text), response_text):
+                post_number = re.search(r">>(\d{1,9})\n" + re.escape(quote_text), response_text).group(1)
+                if post_number in nos_in_prompt:
+                    quote_score += 0.666
+
+        quote_score = quote_score * 0.072
+        if quote_score >= 0.185:
+            accuracy_score += 0.121
 
         # Penalize duplicates in the response_text
         quote_counter = Counter(quotes)
