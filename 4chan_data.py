@@ -5,8 +5,25 @@ from datasets import Dataset
 from datetime import datetime, timedelta, timezone
 from utils import get_swatch_time, clean_text, get_date
 
+topic_filter_file = "topic_filter.txt"
+with open(topic_filter_file, "r", encoding="utf-8") as f:
+    topic_filter_list = f.read().split("\n")
+
+
+def thread_filter(latest_threads):
+    filtered_threads = []
+    for thread in latest_threads:
+        thread_text = thread["com"] if "com" in thread else ""
+        thread_text = clean_text(thread_text)
+        if any(topic in thread_text for topic in topic_filter_list):
+            filtered_threads.append(thread)
+
+    # Remove the filtered threads from the latest_threads list
+    latest_threads = [thread for thread in latest_threads if thread not in filtered_threads]
+    return latest_threads
+
 # --- 1. Fetching and Preprocessing 4chan Thread Data ---
-def fetch_4chan_data(board="pol", num_threads=10, max_prior_posts=6, max_length=2048):
+def fetch_4chan_data(board="pol", num_threads=5, max_prior_posts=6, max_length=2048):
     url = f"https://a.4cdn.org/{board}/threads.json"
     response = requests.get(url)
     threads_data = response.json()
@@ -55,6 +72,10 @@ def fetch_4chan_data(board="pol", num_threads=10, max_prior_posts=6, max_length=
                 if re.search(r"(http|https|www)", completion):
                     pass
                 elif completion:
+                    # Check if completion is just a quote >>{9,} exact match and skip if so
+                    stripped_completion = completion.strip()
+                    if re.match(r">>{9,}", stripped_completion):
+                        pass
                     if prompt == "":
                         pass
                     else:

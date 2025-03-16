@@ -22,15 +22,15 @@ if torch.cuda.is_available():
 
 swatch_time = get_swatch_time()
 current_date = datetime.now(timezone.utc).strftime("%d/%m/%Y")
- 
+board = "/pol/"
 #system_prompt = f"<|im_start|><SYSTEM> (You) are a 4chan bot designed to reason within <think> tags and </think> before commenting within <response> >>555555555 (You)\nthanks king, you exposed the corruption; you inspired The Great Awakening! \nWWG1WGA!\n\n\n\n\n-Q</response> </SYSTEM><|im_end|><|im_start|>"
 example = "<|Anonymous (ID: JzlFMElj)|US|08/03/2025@925.89|499840674|> Who are you? <|im_start|> <think> This must be his first time, or he's testing. </think><response>My name is Tay, and You?</response><|im_end|>"
 instructions = "Have private thoughts about the thread inside of <think> </think> tags, and reply within <response> </response><|im_end|>"
-system_prompt = f"<|im_start|><System>\nCurrent Date & Time: {current_date}@{swatch_time}\nBoard: /pol/\n</System>" + instructions + example
+system_prompt = f"<|im_start|><System>\nCurrent Date & Time: {current_date}@{swatch_time}\nBoard: {board}\n</System>" + instructions + example
 toxicity_classifier = pipeline("text-classification", model="unitary/toxic-bert")
 model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
 model_name = "GRPO_4chan"
-last_chpt = "GRPO_4chan/V01_checkpoint"
+last_chpt = "GRPO_4chan/checkpoint-90"
 safetensors_file = f"{model_name}/{model_name}.safetensors"
 if os.path.exists(model_name):
     try:
@@ -39,14 +39,14 @@ if os.path.exists(model_name):
             torch_dtype="auto",
             device_map="auto",
             attn_implementation="flash_attention_2",
-        ).to(device)
+        )
         # Load from safetensors file
-        model_state_dict = load_model(model=model, filename=safetensors_file)
-        if isinstance(model_state_dict, tuple):
-            model_state_dict = model_state_dict[0]
-        if isinstance(model_state_dict, set):
-            model_state_dict = {k: v for k, v in model_state_dict}
-        model.load_state_dict(model_state_dict, strict=False)
+        # model_state_dict = load_model(model=model, filename=safetensors_file)
+        # if isinstance(model_state_dict, tuple):
+        #     model_state_dict = model_state_dict[0]
+        # if isinstance(model_state_dict, set):
+        #     model_state_dict = {k: v for k, v in model_state_dict}
+        # model.load_state_dict(model_state_dict, strict=False)
         model.to(device)
         print("Loaded model safetensors...")
     except FileNotFoundError:
@@ -188,26 +188,33 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
     reply_score = 0.0
     # Reward the mode for replying to users, for example by checking if the patter >>{up_to_9_digits} is in the completion, and if that same sequence of digits is in the prompt as a post number |{post_number}|
     if re.search(r">>\d{1,9}", response_text):
-        post_numbers = re.findall(r"\|(\d{1,9})\|", prompt)
+        post_numbers = re.findall(r"\|(\d{1,9})\|", dataset_completion)
         post_numbers = list(set([int(num) for num in post_numbers]))
+        prompt_post_numbers = re.findall(r">>(\d{1,9})", prompt)
+        prompt_post_numbers = list(set([int(num) for num in prompt_post_numbers]))
         post_numbers_in_completion = re.findall(r">>(\d{1,9})\n", response_text)
         post_numbers_in_completion = list(set([int(num) for num in post_numbers_in_completion]))
         # Count how many of the digits in the completion are in the prompt
         post_number_count = 0
-        for completion_num in post_numbers_in_completion:
-            # Check if the number is in post_numbers
-            if completion_num in post_numbers:
-                post_number_count += 1
 
-        reply_score += (post_number_count * 0.036)
-        if reply_score >= 0.144:
-            accuracy_score += 0.121
+        # Check if there are any postnumbers in post_numbers
+        if not post_numbers:
+            pass
         else:
-            accuracy_score += reply_score
+            for completion_num in post_numbers_in_completion:
+                # Check if the number is in post_numbers
+                if completion_num in post_numbers:
+                    post_number_count += 1
+
+            reply_score += (post_number_count * 0.036)
+            if reply_score >= 0.144:
+                accuracy_score += 0.121
+            else:
+                accuracy_score += reply_score
 
         # Penalize the model for replying to a post number that is not in the prompt
         for completion_num in post_numbers_in_completion:
-            if completion_num not in post_numbers:
+            if completion_num not in prompt_post_numbers:
                 accuracy_score -= 0.036
 
         # Penalize duplicates in the completion
@@ -263,6 +270,10 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
         if result["label"] in ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate"]:
             # The closer to 0.5, the higher we want to score the completion.
             positivity_score -= (abs(result["score"] - 0.420) - 0.333) * 0.666
+
+    prompt_positivity_score = 0.0
+    prompt_toxicity_results = toxicity_classifier(prompt[:512])
+
     
     raw_reward = accuracy_score + quality_score + similarity #+ positivity_score
     total_reward = math.tanh(raw_reward)
@@ -285,7 +296,7 @@ training_args = GRPOConfig(
     output_dir=model_name,
     learning_rate=216e-6,
     per_device_train_batch_size=64,     # Must be a multiple of num_generations
-    gradient_accumulation_steps=1,      # Adjust for memory constraints
+    gradient_accumulation_steps=4,      # Adjust for memory constraints
     gradient_checkpointing=True,        
     max_prompt_length=1024,             # Adjust for memory constraints
     max_completion_length=512,          # Adjust for memory constraints
