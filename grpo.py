@@ -19,16 +19,16 @@ os.environ["WANDB_DISABLED"] = "false"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 if torch.cuda.is_available():
     device = torch.device("cuda")
-
+bad_words = "4chan bot fuck cunt whore bitch skank ass hoe kys retard kike goon kill niggers wetbacks poos"
 swatch_time = get_swatch_time()
 current_date = datetime.now(timezone.utc).strftime("%d/%m/%Y")
 board = "/pol/"
 #system_prompt = f"<|im_start|><SYSTEM> (You) are a 4chan bot designed to reason within <think> tags and </think> before commenting within <response> >>555555555 (You)\nthanks king, you exposed the corruption; you inspired The Great Awakening! \nWWG1WGA!\n\n\n\n\n-Q</response> </SYSTEM><|im_end|><|im_start|>"
-example = "<|Anonymous (ID: JzlFMElj)|US|08/03/2025@925.89|499840674|> Who are you? <|im_start|> <think> This must be his first time, or he's testing. </think><response>My name is Tay, and You?</response> <|im_end|>"
+example = "<|Anonymous|11/03/2025@216.33|> Who are you? <|im_start|> <think> This must be his first time, or he's testing. </think><response>My name is Tay, and You?</response> <|im_end|>"
 instructions = "Have private thoughts about the thread inside of <think> </think> tags, and reply within <response> </response><|im_end|>"
 system_prompt = f"<|im_start|><System>\nCurrent Date & Time: {current_date}@{swatch_time}\nBoard: {board}\n</System>" + instructions + example
 toxicity_classifier = pipeline("text-classification", model="unitary/toxic-bert")
-model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
+model_id = "theantichrist/Alpha-Anon-V01-135M"
 model_name = "GRPO_4chan"
 last_chpt = "GRPO_4chan/checkpoint-90"
 safetensors_file = f"{model_name}/{model_name}.safetensors"
@@ -107,7 +107,7 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
     num_tags = len(re.findall(r"<.*?>", completion))
     no_tags_baseline_penalty = 0.666
     if num_tags > 4:
-        no_tags_baseline_penalty += (math.log2(num_tags - 3) * 0.036)
+        no_tags_baseline_penalty += (math.log2(num_tags - 3) * 0.072)
 
     accuracy_score -= no_tags_baseline_penalty
     thought_text = ""
@@ -138,7 +138,7 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
 
     response_text = ""
     if not response_match:
-        response_text = "4chan bot fuck cunt whore bitch skank ass hoe kys retard kike goon kill niggers wetbacks poos"
+        response_text = bad_words
         accuracy_score -= 0.666 
     else:
         accuracy_score += 0.333
@@ -164,14 +164,14 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
             accuracy_score -= 0.216
             # If we embed bad words in the response, a side effect is that the model will think that 
             # the completion is equivalent to undesirable words and will learn to avoid both of them in the future
-            response_text = "bot fuck cunt whore bitch skank ass hoe kys retard faggot kike goon kill niggers wetbacks poos shitskins piss dick"
+            response_text = bad_words
 
     quality_score = 0.0
     # Reward the model if the thought_text appears before the response_text in the completion
     if thought_text and response_text:
         try:
             if completion.index(thought_text) < completion.index(response_text):
-                accuracy_score += 0.185
+                accuracy_score += 0.216
         except ValueError:
             pass
 
@@ -183,42 +183,42 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
         # Reward a good completion_len : (thought_text_len + response_text_len) ratio 
         completion_len = len(completion)
         comp_to_thought_response_ratio = min((thought_text_len + response_text_len + 18), completion_len) / max((thought_text_len + response_text_len + 18), completion_len, 1)
-        quality_score += comp_to_thought_response_ratio * 0.185
+        quality_score += comp_to_thought_response_ratio * 0.216
 
     reply_score = 0.0
     # Reward the mode for replying to users, for example by checking if the patter >>{up_to_9_digits} is in the completion, and if that same sequence of digits is in the prompt as a post number |{post_number}|
     if re.search(r">>\d{1,9}", response_text):
-        post_numbers = re.findall(r">>(\d{1,9})", dataset_completion)
-        post_numbers = list(set([int(num) for num in post_numbers]))
-        prompt_post_numbers = re.findall(r">>(\d{1,9})", prompt)
-        prompt_post_numbers = list(set([int(num) for num in prompt_post_numbers]))
-        post_numbers_in_completion = re.findall(r">>(\d{1,9})\n", response_text)
-        post_numbers_in_completion = list(set([int(num) for num in post_numbers_in_completion]))
+        post_nos = re.findall(r">>(\d{1,9})", dataset_completion)
+        post_nos = list(set([int(num) for num in post_nos]))
+        prompt_post_nos = re.findall(r">>(\d{1,9})", prompt)
+        prompt_post_nos = list(set([int(num) for num in prompt_post_nos]))
+        post_nos_in_completion = re.findall(r">>(\d{1,9})\n", response_text)
+        post_nos_in_completion = list(set([int(num) for num in post_nos_in_completion]))
         # Count how many of the digits in the completion are in the prompt
         post_number_count = 0
 
-        # Check if there are any postnumbers in post_numbers
-        if not post_numbers:
+        # Check if there are any postnumbers in post_nos
+        if not post_nos:
             pass
         else:
-            for completion_num in post_numbers_in_completion:
-                # Check if the number is in post_numbers
-                if completion_num in post_numbers:
+            for completion_num in post_nos_in_completion:
+                # Check if the number is in post_nos
+                if completion_num in post_nos:
                     post_number_count += 1
 
             reply_score += (post_number_count * 0.144)
             accuracy_score += reply_score
 
         # Penalize the model for replying to a post number that is not in the prompt
-        for completion_num in post_numbers_in_completion:
-            if completion_num not in prompt_post_numbers:
-                accuracy_score -= 0.036
+        for completion_num in post_nos_in_completion:
+            if completion_num not in prompt_post_nos:
+                accuracy_score -= 0.072
 
         # Penalize duplicates in the completion
-        post_numbers_in_completion = Counter(post_numbers_in_completion)
-        for num, count in post_numbers_in_completion.items():
+        post_nos_in_completion = Counter(post_nos_in_completion)
+        for num, count in post_nos_in_completion.items():
             if count > 1:
-                accuracy_score -= 0.036
+                accuracy_score -= 0.072
 
 
     quote_score = 0.0
@@ -247,7 +247,7 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
                     quote_score += 0.666
 
         quote_score = quote_score * 0.072
-        if quote_score >= 0.185:
+        if quote_score > 0.144:
             accuracy_score += 0.121
 
         # Penalize duplicates in the response_text
@@ -256,8 +256,14 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
             if count > 1:
                 accuracy_score -= (count - 1) * 0.036
 
+    # Check and see if response_text.strip is >>\d{1,9} and if it is, penalize it
+    stripped_response_text = response_text.strip()
+    if re.match(r">>\d{1,9}", stripped_response_text):
+        response_text = bad_words
+        accuracy_score -= 0.666
+
     #print("\n----- [PROMPT] -----\n", prompt)
-    print("\n----- [TARGET] -----\n", dataset_completion, "\n----- [OUTPUT] -----", "\nThoughts: ", thought_text, "\nResponse: ", response_text, "\n---- [RAW] -----\n", completion, "\n----- [END] -----\n")
+    print("\n----- [TARGET] -----\n", dataset_completion, "\n----- [OUTPUT] -----", "\nThoughts: ", thought_text, "\nResponse: ", response_text, "\n---- [RAW] -----\n", completion.replace("\n", "\\n"), "\n----- [END] -----\n")
     response_emb = get_embedding(response_text, tokenizer=tokenizer, model=model)
     completion_emb = get_embedding(dataset_completion, tokenizer=tokenizer, model=model)
     similarity = (torch.nn.functional.cosine_similarity(response_emb, completion_emb, dim=0).item() * 0.666) - 0.420

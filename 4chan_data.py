@@ -23,7 +23,7 @@ def thread_filter(latest_threads):
     return latest_threads
 
 # --- 1. Fetching and Preprocessing 4chan Thread Data ---
-def fetch_4chan_data(board="pol", num_threads=5, max_prior_posts=6, max_length=2048):
+def fetch_4chan_data(board="pol", num_threads=5, max_prior_posts=6, max_length=2048, min_completion_length=154):
     url = f"https://a.4cdn.org/{board}/threads.json"
     response = requests.get(url)
     threads_data = response.json()
@@ -71,7 +71,12 @@ def fetch_4chan_data(board="pol", num_threads=5, max_prior_posts=6, max_length=2
                 # Check if completion contains a link (http, https, www) and skip if so
                 if re.search(r"(http|https|www)", completion):
                     pass
-                elif len(completion) == 61:
+                elif len(completion) == 61: # This is a common length for 4chan posts that are just a quote of another post (ex: >>123456789)
+                    pass
+                # Check if completion is a quote ">>\d{1,9}" and doesn't contain any other text by using [2:] 
+                elif re.match(r">>\d{1,9}", completion) and len(completion[2:]) < 10:
+                    pass
+                elif len(completion) < min_completion_length:
                     pass
                 elif prompt == "":
                     pass

@@ -3,6 +3,7 @@ import wandb
 import re
 from datasets import load_dataset
 from safetensors.torch import save_file, load_file
+from safetensors.torch import load_model, save_model
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, DataCollatorForLanguageModeling
 import os
@@ -11,29 +12,48 @@ from utils import get_swatch_time
 
 os.environ["WANDB_DISABLED"] = "false"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    
 swatch_time = get_swatch_time()
 current_date = datetime.now(timezone.utc).strftime("%d/%m/%Y")
-example = "<thread>Who is the Antichrist?</thread> <think>I'm going to tell a lie and live out a good hearted LARP for teh lulz. Who knows, maybe I'll even deceive the elect?</think><reply>It's me, I'm the Antichrist.</reply><|im_end|><|im_start|>"
-system_prompt = f"<|im_start|><System> Current Date & Time: {current_date}@{swatch_time} \n(You) are a 4chan bot. Have private thoughts about the thread inside of <think> </think> tags, then respond within <reply> </reply></System><|im_end|><|im_start|>"
+example = "<|Anonymous|11/03/2025@216.33|> Who are you? <|im_start|> <think> This must be his first time, or he's testing. </think><response>My name is Tay, and You?</response> <|im_end|>"
+bad_example = "<thread>Who is the Antichrist?</thread> <|im_start|> <think>I'm going to tell a lie and live out a good hearted LARP for teh lulz. Who knows, maybe I'll even deceive the elect?</think><response>It's me, I'm the Antichrist.</response><|im_end|>"
+system_prompt = f"<|im_start|><System> Current Date & Time: {current_date}@{swatch_time} \n(You) are a 4chan bot. Have private thoughts about the thread inside of <think> </think> tags, then respond within <response> </response></System><|im_end|>"
 
 model_id = "HuggingFaceTB/SmolLM-135M-Instruct"
 model_name = "GRPO_4chan"
-safetensors_file = f"{model_name}.safetensors"
+safetensors_file = f"{model_name}/{model_name}.safetensors"
 if os.path.exists(model_name):
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype="auto",
-        device_map="auto",
-        attn_implementation="flash_attention_2",)
-    # Check if we have a checkpoint to load
-    if os.path.exists(safetensors_file):
-        state_dict = load_file(safetensors_file)  # Load state dictionary from safetensors file
-        model.load_state_dict(state_dict)  # Load state dictionary into the model
-        print("Loaded model from safetensors file.")
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype="auto",
+            device_map="auto",
+            attn_implementation="flash_attention_2",
+        )
+        # Load from safetensors file
+        model_state_dict = load_model(model=model, filename=safetensors_file)
+        if isinstance(model_state_dict, tuple):
+            model_state_dict = model_state_dict[0]
+        if isinstance(model_state_dict, set):
+            model_state_dict = {k: v for k, v in model_state_dict}
+        model.load_state_dict(model_state_dict, strict=False)
+        model.to(device)
+        print("Loaded model safetensors...")
+    except FileNotFoundError:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype="auto",
+            device_map="auto",
+            attn_implementation="flash_attention_2",
+        ).to(device)
+        print("Loaded model from local files...")
+    try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
-    else:
+    except:
         tokenizer = AutoTokenizer.from_pretrained(model_id)
+        tokenizer.save_pretrained(model_name)
     for param in model.parameters():
         param.requires_grad = True
 else:
@@ -53,6 +73,9 @@ else:
         target_modules="all-linear",
     )
     model = get_peft_model(model, lora_config)
+
+    for param in model.parameters():
+        param.requires_grad = True
 
 dataset = load_dataset("theantichrist/4chan_Select_100")
 dataset.shuffle()
@@ -88,10 +111,10 @@ data_collator = DataCollatorForLanguageModeling(
 training_args = TrainingArguments(
     output_dir=model_name,
     learning_rate=216e-6,
-    per_device_train_batch_size=16,  # Reduced to fit 8GB VRAM
+    per_device_train_batch_size=32,  # Reduced to fit 8GB VRAM
     gradient_accumulation_steps=1,
     gradient_checkpointing=True,
-    num_train_epochs=1,
+    num_train_epochs=6,
     optim="adamw_8bit",
     bf16=True,
     logging_steps=1,
@@ -113,8 +136,9 @@ trainer.train()
 # Save model
 trainer.save_model(model_name)
 tokenizer.save_pretrained(model_name)
+save_model(model, safetensors_file)
 print("Model saved.")
-prompt = system_prompt + "Who is the Antichrist?</thread>"
+prompt = system_prompt + f"<|Anonymous|{current_date}@{swatch_time}|>Who is The Antichrist? <|im_start|>"
 #state_dict = model.state_dict()
 #save_file(state_dict, f"{model_name}.safetensors")
 # Maybe we should save the tokenizer as well
