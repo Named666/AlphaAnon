@@ -16,28 +16,23 @@ Ensure you have the following installed:
 ### Installation
 
 1. Clone the repository:
-    ```sh
+    ```
     git clone https://github.com/yourusername/AlphaAnon.git
     cd AlphaAnon
     ```
 
 2. Install the required packages:
-    ```sh
+    ```
     pip install -r requirements.txt
     ```
 
-### Fine-Tuning the Model
+3. Fine-Tuning the Model
+
+Get 4chan data
+``` python 4chan_data.py ```
 
 Run the fine-tuning script:
-    ```sh
-    python fine_tune.py
-    ```
+    ``` python fine_tune.py ```
 
-### Using GRPO on Live Data
-
-1. Run the 4chan_data script to fetch live data, which will output 4chan_thread_dataset.json
-2. Change the dataset source inside grpo.py to "4chan_thread_dataset.json"
 3. Run the GRPO script:
-    ```sh
-    python grpo.py
-    ```
+    ```python grpo.py ```
