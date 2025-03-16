@@ -71,16 +71,15 @@ def fetch_4chan_data(board="pol", num_threads=5, max_prior_posts=6, max_length=2
                 # Check if completion contains a link (http, https, www) and skip if so
                 if re.search(r"(http|https|www)", completion):
                     pass
-                elif completion:
-                    # Check if completion is just a quote >>{9,} exact match and skip if so
-                    stripped_completion = completion.strip()
-                    if re.match(r">>{9,}", stripped_completion):
-                        pass
-                    if prompt == "":
-                        pass
-                    else:
-                        dataset.append({"prompt": prompt, "completion": completion})
-                
+                elif len(completion) == 61:
+                    pass
+                elif prompt == "":
+                    pass
+                elif completion == "":
+                    pass
+                else:
+                    dataset.append({"prompt": prompt, "completion": completion})
+            
 
     dataset = [{ "prompt": d["prompt"], "completion": clean_text(d["completion"])} 
                for d in dataset]

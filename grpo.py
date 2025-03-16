@@ -24,7 +24,7 @@ swatch_time = get_swatch_time()
 current_date = datetime.now(timezone.utc).strftime("%d/%m/%Y")
 board = "/pol/"
 #system_prompt = f"<|im_start|><SYSTEM> (You) are a 4chan bot designed to reason within <think> tags and </think> before commenting within <response> >>555555555 (You)\nthanks king, you exposed the corruption; you inspired The Great Awakening! \nWWG1WGA!\n\n\n\n\n-Q</response> </SYSTEM><|im_end|><|im_start|>"
-example = "<|Anonymous (ID: JzlFMElj)|US|08/03/2025@925.89|499840674|> Who are you? <|im_start|> <think> This must be his first time, or he's testing. </think><response>My name is Tay, and You?</response><|im_end|>"
+example = "<|Anonymous (ID: JzlFMElj)|US|08/03/2025@925.89|499840674|> Who are you? <|im_start|> <think> This must be his first time, or he's testing. </think><response>My name is Tay, and You?</response> <|im_end|>"
 instructions = "Have private thoughts about the thread inside of <think> </think> tags, and reply within <response> </response><|im_end|>"
 system_prompt = f"<|im_start|><System>\nCurrent Date & Time: {current_date}@{swatch_time}\nBoard: {board}\n</System>" + instructions + example
 toxicity_classifier = pipeline("text-classification", model="unitary/toxic-bert")
@@ -41,12 +41,12 @@ if os.path.exists(model_name):
             attn_implementation="flash_attention_2",
         )
         # Load from safetensors file
-        # model_state_dict = load_model(model=model, filename=safetensors_file)
-        # if isinstance(model_state_dict, tuple):
-        #     model_state_dict = model_state_dict[0]
-        # if isinstance(model_state_dict, set):
-        #     model_state_dict = {k: v for k, v in model_state_dict}
-        # model.load_state_dict(model_state_dict, strict=False)
+        model_state_dict = load_model(model=model, filename=safetensors_file)
+        if isinstance(model_state_dict, tuple):
+            model_state_dict = model_state_dict[0]
+        if isinstance(model_state_dict, set):
+            model_state_dict = {k: v for k, v in model_state_dict}
+        model.load_state_dict(model_state_dict, strict=False)
         model.to(device)
         print("Loaded model safetensors...")
     except FileNotFoundError:
@@ -206,11 +206,8 @@ def reward_function(prompt, completion, dataset_completion, **kwargs):
                 if completion_num in post_numbers:
                     post_number_count += 1
 
-            reply_score += (post_number_count * 0.036)
-            if reply_score >= 0.144:
-                accuracy_score += 0.121
-            else:
-                accuracy_score += reply_score
+            reply_score += (post_number_count * 0.144)
+            accuracy_score += reply_score
 
         # Penalize the model for replying to a post number that is not in the prompt
         for completion_num in post_numbers_in_completion:
@@ -300,7 +297,7 @@ training_args = GRPOConfig(
     gradient_checkpointing=True,        
     max_prompt_length=1024,             # Adjust for memory constraints
     max_completion_length=512,          # Adjust for memory constraints
-    num_generations=4,                  # Adjust for memory constraints
+    num_generations=16,                  # Adjust for memory constraints
     optim="adamw_8bit",
     num_train_epochs=1,
     bf16=True,
